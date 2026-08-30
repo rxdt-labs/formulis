@@ -62,6 +62,22 @@ class term
 }
 ```
 
+## Constants: The `const_` Type
+
+Terms work well for values the user keeps alive and updates. But what about the literal `1` in `y = x + 1`? Constants used inside expressions must also participate in the expression tree, so they too need to be placed on the heap and referenced by a pointer (a plain temporary would dangle as soon as the operator returns). Lifting them into `term` objects would work, but a `term` is a living, mutable thing with its own lifetime, whereas an expression constant is an implementation detail of a single expression. For this reason there is a dedicated type, `const_`:
+
+```cpp
+template<typename T>
+class const_
+{
+  T m_value;
+  std::vector<formula<T>*> m_parents;
+  // ...
+}
+```
+
+A `const_` object is created by the operator overloads whenever a raw value appears in an expression. It is *never* created by the user and *never* outlives the formula(s) that use it: as soon as a `const_` has no parent formula left, it deallocates itself. This is the key difference from `term`, whose lifetime the user controls.
+
 A similar structure is used for `formula` with some nuances. Now, we consider an slightly more complicated expression to exhibit this:
 
 ```cpp
@@ -98,7 +114,7 @@ To do so, we use the `std::variant` type `stmt`:
 
 ```cpp
 template<typename T>
-using stmt = std::variant<term<T>*, formula<T>*>;
+using stmt = std::variant<const_<T>*, term<T>*, formula<T>*>;
 ```
 
 and so we get precisely the definition of `bin_op`:
@@ -114,7 +130,13 @@ struct bin_op
 
 Hence, to calculate the value it roughly becomes `eval(f) = f.op(eval(f.lhs), eval(f.rhs))` or if the operator is unary: `eval(f) = f.op(f.rhs)`. With the base case being a `term` is simply `unwrap` the internal value. To make this fast, of course, caching is used.
 
-Lastly, we have yet to talk about the field `on_change` which is called when ever either a `term` or `formula` is changed. It is simply a collection of function objects that are supplied two paremeters (an old/previous and new/current val) and called one by one if a change is detected.
+Lastly, we have yet to talk about the field `on_change` which is called when ever either a `term` or `formula` is changed. It is simply a collection of function objects that are supplied two paremeters (an old/previous and new/current val) and called one by one if a change is detected. Since only the heap allocated original receives updates, observers forward their `on_change` registrations to their original, so that `auto z = x + y; z.on_change(...);` behaves as expected.
+
+## A Note on Operators
+
+Operators always build on the *canonical* (heap allocated) node of their operands: applying an operator to a `formula` unwraps it to its original first, so `auto z = x + y; auto w = z * 2;` attaches `w` to the same tree `z` observes, rather than to the throwaway copy. This keeps updates propagating and memory tidy regardless of how many copies the user binds.
+
+The boolean operators (`&&`, `||`, `!`) and boolean registered functions produce a formula over the operand type storing a boolean: `true`/`false` for bool operands, `1`/`0` otherwise. The unary arithmetic operators (`+`, `-`, `~`) are registered as well, so `-x` on a term is reactive instead of silently decaying to a plain value.
 
 # The Destructor and Memory Management
 
@@ -128,4 +150,11 @@ auto w = x + y + z;
 ```
 This makes two formula (`w` and `x + y`) and has 3 `term`. With how it is written, the memory allocation is a bit spooky. `x`, `y`, and `z` are as expected placed on the stack. However, `w` and `x + y` are both placed on the heap! Do not worry: When `x`, `y`, and `z` are cleaned up, so is `w` and `x + y`.
 
-Suppose that `x` is removed from the stack first. The destructor first calls the destructor of the parent formula(s), which, in this case, is `w` and `x + y`. *But* before `w` and `x + y` deallocate, they also send a message to their immediate children `x`, `y`, and `z` that they should remove `w` and `x + y` from their parent list, respectively. *Then* they deallocate. Thus, memory is managed for the user!
+Suppose that `x` is removed from the stack first. The destructor first destroys the parent formula(s), which, in this case, are `x + y` and `w`. *But* before `x + y` and `w` deallocate, they also send a message to their immediate children `x`, `y`, and `z` that they should remove `x + y` and `w` from their parent list, respectively. *Then* they deallocate. Thus, memory is managed for the user!
+
+There are two subtleties worth noting:
+
+- A `term` owns its parent formulae: when a term dies, so do the formulae that use it. Terms therefore must not share parent lists; copying a term produces an independent term with the same value but no parents.
+- `auto z = x + 1;` (or `auto w = x + y;`) binds a *copy* of the heap allocated formula, since `auto` deduces by value. Copies are mere observers: they evaluate lazily just like the original, but they do not own the expression tree and leave it untouched when destroyed. The real formula is deallocated by the terms it uses.
+
+Finally, constants are handled by `const_` as described above: when the formula that used a constant is destroyed, it removes itself from the constant's parent list, and the constant, finding itself parentless, deallocates.

@@ -14,7 +14,7 @@ auto main() -> int
   term y(5); // Same as above.
   auto z = x + y; // z = x + y -> 3 + 5 = 8.
   std::cout << (int) z; // Gets the value "8".
-  x->set(4); // Change the value of the term x.
+  x.set(4); // Change the value of the term x.
   std::cout << (int) z; // z = x + y -> 4 + 5 = "9" now. Everything is updated automatically.
 }
 ```
