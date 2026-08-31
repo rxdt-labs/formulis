@@ -80,6 +80,26 @@ target_link_libraries(
 )
 ```
 
+### Conan package
+
+This project can be installed with the [Conan][4] package manager. To use it
+from another Conan-based project, add it to your `conanfile.txt`:
+
+```ini
+[requires]
+formulis/0.1.0
+```
+
+The package provides the same `formulis::formulis` target as the CMake package
+above, so `find_package(formulis REQUIRED)` works unchanged when consuming
+through Conan.
+
+To build, test, and package the project from this repository with Conan:
+
+```sh
+conan create . -s build_type=Release --build=missing
+```
+
 ### Note to packagers
 
 The `CMAKE_INSTALL_INCLUDEDIR` is set to a path other than just `include` if
@@ -91,3 +111,4 @@ install rules.
 [1]: https://cmake.org/download/
 [2]: https://cmake.org/cmake/help/latest/manual/cmake.1.html#install-a-project
 [3]: https://cmake.org/cmake/help/latest/command/find_package.html
+[4]: https://conan.io
