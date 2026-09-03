@@ -81,4 +81,4 @@ ctest --preset=dev
 
 ## Documentation
 
-Documentation can be found [here.](https://thyrgle.github.io/formulis/)
+Documentation can be found [here.](https://rxdt-labs.github.io/formulis/)
